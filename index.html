@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="/SozialeApp-Frontend/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="sozialappfrontend">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>sozialappfrontend</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <script src="https://js.stripe.com/v3/"></script>
+  <style>
+    #stripe-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: white;
+      z-index: 9999;
+      overflow-y: auto;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    #stripe-overlay .so-inner {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 32px 24px;
+    }
+    #stripe-overlay h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #1a1a2e;
+      margin: 0 0 24px;
+    }
+    #stripe-overlay label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #444;
+      margin-bottom: 6px;
+    }
+    .so-field {
+      border: 1px solid rgba(0,0,0,0.38);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
+      background: white;
+    }
+    .so-field:focus-within { border-color: #673ab7; }
+    .so-row { display: flex; gap: 12px; }
+    .so-row > div { flex: 1; }
+    #so-error {
+      color: #d32f2f;
+      font-size: 13px;
+      min-height: 20px;
+      margin-bottom: 16px;
+    }
+    #so-pay-btn {
+      width: 100%;
+      padding: 14px;
+      background: #673ab7;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 10px;
+    }
+    #so-pay-btn:disabled { opacity: 0.6; cursor: default; }
+    #so-cancel-btn {
+      width: 100%;
+      padding: 12px;
+      background: transparent;
+      color: #673ab7;
+      border: 1px solid #673ab7;
+      border-radius: 8px;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    .so-secure {
+      text-align: center;
+      color: #888;
+      font-size: 12px;
+      margin-top: 12px;
+    }
+  </style>
+
+  <div id="stripe-overlay">
+    <div class="so-inner">
+      <h2>Kartendaten eingeben</h2>
+      <label>Kartennummer</label>
+      <div class="so-field" id="stripe-number-el"></div>
+      <div class="so-row">
+        <div>
+          <label>Ablaufdatum</label>
+          <div class="so-field" id="stripe-expiry-el"></div>
+        </div>
+        <div>
+          <label>CVC</label>
+          <div class="so-field" id="stripe-cvc-el"></div>
+        </div>
+      </div>
+      <div id="so-error"></div>
+      <button id="so-pay-btn">Jetzt bezahlen</button>
+      <button id="so-cancel-btn">Abbrechen</button>
+      <p class="so-secure">🔒 Sichere Zahlung via Stripe</p>
+    </div>
+  </div>
+
+  <script>
+    var _stripe = null;
+    var _cardNumber = null;
+    var _cardExpiry = null;
+    var _cardCvc = null;
+    var _elementsMounted = false;
+
+    var _fieldStyle = {
+      style: {
+        base: {
+          fontSize: '16px',
+          color: '#32325d',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          '::placeholder': { color: '#aab7c4' }
+        },
+        invalid: { color: '#c62828' }
+      }
+    };
+
+    function initStripeCard(publishableKey) {
+      _stripe = Stripe(publishableKey);
+      var elements = _stripe.elements();
+      _cardNumber = elements.create('cardNumber', _fieldStyle);
+      _cardExpiry = elements.create('cardExpiry', _fieldStyle);
+      _cardCvc    = elements.create('cardCvc',    _fieldStyle);
+    }
+
+    function showStripeOverlay(clientSecret, name, email) {
+      return new Promise(function(resolve) {
+        var overlay  = document.getElementById('stripe-overlay');
+        var errorEl  = document.getElementById('so-error');
+        var payBtn   = document.getElementById('so-pay-btn');
+        var cancelBtn = document.getElementById('so-cancel-btn');
+
+        errorEl.textContent = '';
+        overlay.style.display = 'block';
+
+        if (!_elementsMounted) {
+          _cardNumber.mount('#stripe-number-el');
+          _cardExpiry.mount('#stripe-expiry-el');
+          _cardCvc.mount('#stripe-cvc-el');
+          _elementsMounted = true;
+        }
+
+        function cleanup() {
+          overlay.style.display = 'none';
+          payBtn.onclick = null;
+          cancelBtn.onclick = null;
+        }
+
+        payBtn.onclick = function() {
+          payBtn.disabled = true;
+          errorEl.textContent = '';
+          _stripe.confirmCardPayment(clientSecret, {
+            payment_method: {
+              card: _cardNumber,
+              billing_details: { name: name, email: email }
+            }
+          }).then(function(result) {
+            payBtn.disabled = false;
+            if (result.error) {
+              errorEl.textContent = result.error.message;
+              resolve(JSON.stringify({ error: result.error.message })); // ✅ hinzufügen
+          } else {
+              cleanup();
+              resolve(JSON.stringify({ success: true }));
+          }
+          });
+        };
+
+        cancelBtn.onclick = function() {
+          cleanup();
+          resolve(JSON.stringify({ canceled: true }));
+        };
+      });
+    }
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
